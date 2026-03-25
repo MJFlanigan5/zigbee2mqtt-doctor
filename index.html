@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zigbee2MQTT Doctor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d10;
+      --card:      #13131a;
+      --border:    rgba(255,255,255,0.08);
+      --accent:    #7c3aed;
+      --accent-h:  #6d28d9;
+      --green:     #22c55e;
+      --yellow:    #f59e0b;
+      --red:       #ef4444;
+      --gray:      #6b7280;
+      --text:      #e2e2e8;
+      --text-dim:  #9898a6;
+      --radius:    10px;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 14px;
+    }
+
+    /* ── Header ─────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    header h1 {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      flex: 1;
+    }
+    header h1 span { color: var(--accent); }
+
+    .conn-form {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .conn-form input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 13px;
+      width: 200px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .conn-form input:focus { border-color: var(--accent); }
+
+    .conn-status {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--gray);
+      flex-shrink: 0;
+      transition: background .3s;
+    }
+    .conn-status.online  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .conn-status.offline { background: var(--red); }
+    .conn-status.connecting { background: var(--yellow); animation: pulse 1s infinite; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── Buttons ─────────────────────────────────── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 6px 13px;
+      border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: background .15s, opacity .15s;
+      white-space: nowrap;
+    }
+    .btn-primary   { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-h); }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--text); }
+    .btn-sm { padding: 3px 8px; font-size: 12px; }
+    .btn-danger { background: var(--red); color: #fff; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Layout ──────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      grid-template-rows: auto auto auto;
+      gap: 0;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .panel {
+      padding: 16px;
+      border: 1px solid var(--border);
+      background: var(--card);
+    }
+    .panel-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    /* Sidebar bridge panel */
+    #panel-bridge {
+      grid-column: 1;
+      grid-row: 1;
+      border-right: none;
+      border-bottom: none;
+      min-height: 220px;
+    }
+
+    /* Devices panel */
+    #panel-devices {
+      grid-column: 2;
+      grid-row: 1;
+      border-bottom: none;
+    }
+
+    /* Diagnostics */
+    #panel-diagnostics {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      border-bottom: none;
+    }
+
+    /* Logs */
+    #panel-logs {
+      grid-column: 1 / -1;
+      grid-row: 3;
+    }
+
+    /* ── Bridge panel ────────────────────────────── */
+    .bridge-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 8px;
+    }
+    .bridge-row:last-child { border-bottom: none; }
+    .bridge-label { color: var(--text-dim); font-size: 12px; }
+    .bridge-value { font-size: 13px; font-weight: 500; text-align: right; max-width: 140px; word-break: break-all; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge-green  { background: rgba(34,197,94,.15);  color: var(--green); }
+      .badge-red  { background: rgba(239,68,68,.15);   color: var(--red); }
+    .badge-yellow { background: rgba(245,158,11,.15);  color: var(--yellow); }
+    .badge-gray   { background: rgba(107,114,128,.15); color: var(--gray); }
+
+    /* ── Devices panel ───────────────────────────── */
+    .devices-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .devices-toolbar h2 {
+      font-size: 13px;
+      font-weight: 600;
+      flex: 1;
+    }
+    .filter-btn {
+      padding: 4px 10px;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .filter-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .search-input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 5px 9px;
+      font-size: 12px;
+      outline: none;
+      width: 160px;
+    }
+    .search-input:focus { border-color: var(--accent); }
+
+    .table-wrap {
+      overflow-x: auto;
+      max-height: 380px;
+      overflow-y: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--card);
+      color: var(--text-dim);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+    }
+    thead th:hover { color: var(--text); }
+    thead th .sort-icon { margin-left: 3px; opacity: .5; }
+    thead th.sorted .sort-icon { opacity: 1; color: var(--accent); }
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background .1s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,.03); }
+    td { padding: 8px 10px; vertical-align: middle; }
+
+    /* LQI bar */
+    .lqi-wrap { display: flex; align-items: center; gap: 7px; min-width: 80px; }
+    .lqi-bar-outer {
+      flex: 1; height: 6px;
+      background: rgba(255,255,255,.08);
+      border-radius: 99px;
+      overflow: hidden;
+      min-width: 40px;
+    }
+    .lqi-bar-inner {
+      height: 100%;
+      border-radius: 99px;
+      transition: width .4s;
+    }
+    .lqi-num { font-size: 12px; font-weight: 600; min-width: 26px; }
+
+    .device-type {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .device-name { font-weight: 500; }
+    .device-model { font-size: 11px; color: var(--text-dim); }
+
+    /* last-seen */
+    .last-seen { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+    .last-seen.stale { color: var(--yellow); }
+    .last-seen.offline { color: var(--red); }
+
+    /* per-device actions */
+    .row-actions { display: flex; gap: 4px; }
+
+    /* empty state */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-dim);
+    }
+    .empty-state .icon { font-size: 36px; margin-bottom: 10px; }
+
+    /* ── Diagnostics ─────────────────────────────── */
+    .diag-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 10px;
+    }
+    .diag-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+    .diag-icon { font-size: 16px; flex-shrink: 0; line-height: 1.4; }
+    .diag-text { font-size: 13px; }
+    .diag-hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+    .diag-ok     { border-color: rgba(34,197,94,.25); }
+    .diag-warn   { border-color: rgba(245,158,11,.25); }
+    .diag-error  { border-color: rgba(239,68,68,.25); }
+
+    /* ── Logs ────────────────────────────────────── */
+    .logs-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .logs-toolbar h2 { font-size: 13px; font-weight: 600; flex: 1; }
+    #log-output {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      height: 200px;
+      overflow-y: auto;
+      font-family: "SF Mono", "Fira Mono", "Consolas", monospace;
+      font-size: 12px;
+      line-height: 1.65;
+    }
+    .log-line { display: flex; gap: 8px; }
+    .log-ts   { color: var(--gray); flex-shrink: 0; }
+    .log-level-info    { color: var(--text-dim); }
+    .log-level-warning { color: var(--yellow); }
+    .log-level-error   { color: var(--red); }
+    .log-level-debug   { color: #64748b; }
+
+    /* ── Permit join overlay badge ───────────────── */
+    #permit-badge {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      background: rgba(245,158,11,.15);
+      border: 1px solid rgba(245,158,11,.35);
+      color: var(--yellow);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    #permit-badge.visible { display: inline-flex; }
+
+    /* ── Responsive ──────────────────────────────── */
+    @media (max-width: 700px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      #panel-bridge {
+        grid-column: 1;
+        grid-row: 1;
+        border-right: 1px solid var(--border);
+      }
+      #panel-devices {
+        grid-column: 1;
+        grid-row: 2;
+      }
+      #panel-diagnostics { grid-row: 3; }
+      #panel-logs        { grid-row: 4; }
+      .conn-form input   { width: 150px; }
+    }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.22); }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────── -->
+<header>
+  <h1>⚡ Zigbee2MQTT <span>Doctor</span></h1>
+  <div id="permit-badge">⚠ Permit Join ON</div>
+  <div class="conn-form">
+    <div class="conn-status" id="conn-dot"></div>
+    <input id="inp-host" type="text" placeholder="host:port (e.g. 192.168.1.10:8080)" value="" />
+    <button class="btn btn-primary" id="btn-connect" onclick="toggleConnect()">Connect</button>
+  </div>
+</header>
+
+<!-- ── Main layout ─────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- Bridge panel -->
+  <div class="panel" id="panel-bridge">
+    <div class="panel-title">Bridge</div>
+    <div id="bridge-content">
+      <div class="empty-state" style="padding:20px 0">
+        <div style="color:var(--text-dim);font-size:13px">Not connected</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Devices panel -->
+  <div class="panel" id="panel-devices">
+    <div class="devices-toolbar">
+      <h2>Devices <span id="device-count" style="color:var(--text-dim);font-weight:400"></span></h2>
+      <input class="search-input" id="device-search" placeholder="Search…" oninput="applyFilters()" />
+      <button class="filter-btn active" data-filter="all"     onclick="setFilter('all',this)">All</button>
+      <button class="filter-btn"        data-filter="offline" onclick="setFilter('offline',this)">Offline</button>
+      <button class="filter-btn"        data-filter="low_lqi" onclick="setFilter('low_lqi',this)">Low LQI</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportCSV()" title="Download CSV">⬇ CSV</button>
+      <button class="btn btn-ghost btn-sm" id="btn-permit"
+              onclick="togglePermitJoin()" title="Toggle permit join" disabled>
+        Permit Join
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table id="devices-table">
+        <thead>
+          <tr>
+            <th onclick="sortBy('name')"       data-col="name">    Name      <span class="sort-icon">↕</span></th>
+            <th onclick="sortBy('type')"       data-col="type">    Type      <span class="sort-icon">↕</span></th>
+            <th onclick="sortBy('lqi')"        data-col="lqi">     LQI       <span class="sort-icon">↕</span></th>
+            <th onclick="sortBy('last_seen')"  data-col="last_seen">Last Seen <span class="sort-icon">↕</span></th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="devices-tbody">
+          <tr><td colspan="6"><div class="empty-state"><div class="icon">📡</div>Connect to see devices</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Diagnostics panel -->
+  <div class="panel" id="panel-diagnostics">
+    <div class="panel-title">Diagnostics</div>
+    <div id="diag-grid" class="diag-grid">
+      <div class="diag-item">
+        <span class="diag-icon">○</span>
+        <div><div class="diag-text" style="color:var(--text-dim)">Connect to run diagnostics</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live logs -->
+  <div class="panel" id="panel-logs">
+    <div class="logs-toolbar">
+      <h2>Live Logs</h2>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-dim);cursor:pointer">
+        <input type="checkbox" id="log-autoscroll" checked style="accent-color:var(--accent)" /> Auto-scroll
+      </label>
+      <button class="btn btn-ghost btn-sm" onclick="clearLogs()">Clear</button>
+    </div>
+    <div id="log-output"></div>
+  </div>
+
+</div><!-- .layout -->
+
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════
+   State
+   ═══════════════════════════════════════════════════════════ */
+let ws            = null;
+let reconnectTimer = null;
+let reconnectDelay = 2000;
+let devices       = [];       // raw device array from Z2M
+let bridgeInfo    = {};
+let bridgeState   = 'offline';
+let permitJoin    = false;
+let sortCol       = 'name';
+let sortAsc       = true;
+let activeFilter  = 'all';
+let MAX_LOG_LINES = 300;
+
+/* ═══════════════════════════════════════════════════════════
+   Connection
+   ═══════════════════════════════════════════════════════════ */
+function toggleConnect() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    disconnect();
+  } else {
+    const raw = document.getElementById('inp-host').value.trim();
+    if (!raw) { appendLog('error', 'Enter a host:port to connect.'); return; }
+    const [host, port] = parseHostPort(raw);
+    connect(host, port);
+  }
+}
+
+function parseHostPort(raw) {
+  // strip protocol if pasted
+  raw = raw.replace(/^wss?:\/\//, '').replace(/\/api$/, '');
+  const parts = raw.split(':');
+  if (parts.length === 2) return [parts[0], parseInt(parts[1]) || 8080];
+  return [parts[0], 8080];
+}
+
+function connect(host, port) {
+  if (ws) ws.close();
+  clearTimeout(reconnectTimer);
+
+  const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+  const url   = `${proto}://${host}:${port}/api`;
+
+  setConnStatus('connecting');
+  appendLog('info', `Connecting to ${url} …`);
+
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    reconnectDelay = 2000;
+    setConnStatus('online');
+    document.getElementById('btn-connect').textContent = 'Disconnect';
+    appendLog('info', `Connected to ${url}`);
+    document.getElementById('btn-permit').disabled = false;
+  };
+
+  ws.onmessage = (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+      handleMessage(msg);
+    } catch (e) {
+      /* ignore parse errors */
+    }
+  };
+
+  ws.onerror = () => {
+    appendLog('error', 'WebSocket error.');
+  };
+
+  ws.onclose = (evt) => {
+    setConnStatus('offline');
+    document.getElementById('btn-connect').textContent = 'Connect';
+    document.getElementById('btn-permit').disabled = true;
+    if (evt.code !== 1000) {
+      appendLog('warning', `Disconnected (code ${evt.code}). Reconnecting in ${reconnectDelay/1000}s…`);
+      scheduleReconnect(host, port);
+    } else {
+      appendLog('info', 'Disconnected.');
+    }
+  };
+}
+
+function disconnect() {
+  clearTimeout(reconnectTimer);
+  if (ws) {
+    ws.close(1000, 'user disconnect');
+    ws = null;
+  }
+  setConnStatus('offline');
+  document.getElementById('btn-connect').textContent = 'Connect';
+  document.getElementById('btn-permit').disabled = true;
+}
+
+function scheduleReconnect(host, port) {
+  reconnectTimer = setTimeout(() => {
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
+    connect(host, port);
+  }, reconnectDelay);
+}
+
+function setConnStatus(status) {
+  const dot = document.getElementById('conn-dot');
+  dot.className = 'conn-status ' + status;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Message dispatcher
+   ═══════════════════════════════════════════════════════════ */
+function handleMessage(msg) {
+  const topic   = msg.topic || '';
+  let   payload = msg.payload;
+
+  // Z2M can send payload as a string or already-parsed object
+  if (typeof payload === 'string') {
+    try { payload = JSON.parse(payload); } catch(e) { /* leave as string */ }
+  }
+
+  if (topic.endsWith('/bridge/devices')) {
+    if (Array.isArray(payload)) {
+      devices = payload;
+      applyFilters();
+      runDiagnostics(devices, bridgeInfo);
+    }
+  } else if (topic.endsWith('/bridge/state')) {
+    bridgeState = (payload && payload.state) ? payload.state : (payload || 'unknown');
+    renderBridge();
+  } else if (topic.endsWith('/bridge/info')) {
+    bridgeInfo = payload || {};
+    permitJoin = !!bridgeInfo.permit_join;
+    renderBridge();
+    runDiagnostics(devices, bridgeInfo);
+    updatePermitBadge();
+  } else if (topic.endsWith('/bridge/health')) {
+    // store but don't render separately — info panel covers it
+    bridgeInfo._health = payload;
+  } else if (topic.endsWith('/bridge/logging')) {
+    const level   = (payload && payload.level)   ? payload.level   : 'info';
+    const message = (payload && payload.message) ? payload.message : JSON.stringify(payload);
+    appendLog(level, message);
+  } else if (topic.endsWith('/bridge/event')) {
+    const type   = (payload && payload.type)   ? payload.type   : '?';
+    const data   = (payload && payload.data)   ? payload.data   : {};
+    const name   = data.friendly_name || data.ieee_address || '?';
+    appendLog('info', `[event] ${type}: ${name}`);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Send helper
+   ═══════════════════════════════════════════════════════════ */
+function sendMsg(topic, payload) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    appendLog('error', 'Not connected — cannot send command.');
+    return;
+  }
+  ws.send(JSON.stringify({ topic, payload }));
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Permit Join
+   ═══════════════════════════════════════════════════════════ */
+function togglePermitJoin() {
+  const enable = !permitJoin;
+  sendMsg('zigbee2mqtt/bridge/request/permit_join', {
+    value: enable,
+    time: enable ? 60 : 0
+  });
+  appendLog('info', `Permit join ${enable ? 'enabled for 60s' : 'disabled'}.`);
+}
+
+function updatePermitBadge() {
+  const el = document.getElementById('permit-badge');
+  if (permitJoin) {
+    el.classList.add('visible');
+  } else {
+    el.classList.remove('visible');
+  }
+  const btn = document.getElementById('btn-permit');
+  btn.textContent = permitJoin ? 'Disable Join' : 'Permit Join';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Bridge panel renderer
+   ═══════════════════════════════════════════════════════════ */
+function renderBridge() {
+  const el = document.getElementById('bridge-content');
+  const coord = (bridgeInfo.coordinator) || {};
+  const net   = (bridgeInfo.network)     || {};
+  const ver   = (bridgeInfo.version)     || '—';
+
+  const stateColor = bridgeState === 'online' ? 'badge-green' :
+                     bridgeState === 'offline' ? 'badge-red' : 'badge-gray';
+
+  const pjColor = permitJoin ? 'badge-yellow' : 'badge-gray';
+
+  const rows = [
+    ['Status',       `<span class="badge ${stateColor}">${bridgeState || '—'}</span>`],
+    ['Coordinator',  escHtml(coord.type || '—')],
+    ['FW Version',   escHtml(coord.meta && coord.meta.revision ? String(coord.meta.revision) : '—')],
+    ['Z2M Version',  escHtml(ver)],
+    ['Channel',      escHtml(net.channel ? String(net.channel) : '—')],
+    ['PAN ID',       escHtml(net.pan_id  ? '0x' + net.pan_id.toString(16).toUpperCase() : '—')],
+    ['Ext PAN ID',   escHtml(net.extended_pan_id ? String(net.extended_pan_id).slice(0,16) : '—')],
+    ['Permit Join',  `<span class="badge ${pjColor}">${permitJoin ? 'ON' : 'OFF'}</span>`],
+  ];
+
+  el.innerHTML = rows.map(([label, val]) => `
+    <div class="bridge-row">
+      <span class="bridge-label">${label}</span>
+      <span class="bridge-value">${val}</span>
+    </div>`).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Device table
+   ═══════════════════════════════════════════════════════════ */
+let currentFilter = 'all';
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  const q = document.getElementById('device-search').value.toLowerCase();
+  let filtered = devices.filter(d => {
+    const name = (d.friendly_name || d.ieee_address || '').toLowerCase();
+    if (q && !name.includes(q)) return false;
+    if (currentFilter === 'offline') return isOffline(d);
+    if (currentFilter === 'low_lqi') return (getLqi(d) !== null && getLqi(d) < 50);
+    return true;
+  });
+  renderDevices(filtered);
+}
+
+function sortBy(col) {
+  if (sortCol === col) {
+    sortAsc = !sortAsc;
+  } else {
+    sortCol = col;
+    sortAsc = true;
+  }
+  // update header icons
+  document.querySelectorAll('thead th[data-col]').forEach(th => {
+    th.classList.toggle('sorted', th.dataset.col === col);
+  });
+  applyFilters();
+}
+
+function renderDevices(list) {
+  // sort
+  list = [...list].sort((a, b) => {
+    let av, bv;
+    switch (sortCol) {
+      case 'name':
+        av = (a.friendly_name || '').toLowerCase();
+        bv = (b.friendly_name || '').toLowerCase();
+        break;
+      case 'type':
+        av = a.type || '';
+        bv = b.type || '';
+        break;
+      case 'lqi':
+        av = getLqi(a) ?? -1;
+        bv = getLqi(b) ?? -1;
+        break;
+      case 'last_seen':
+        av = getLastSeenMs(a);
+        bv = getLastSeenMs(b);
+        break;
+      default:
+        av = ''; bv = '';
+    }
+    if (av < bv) return sortAsc ? -1 : 1;
+    if (av > bv) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  const count = document.getElementById('device-count');
+  count.textContent = `(${list.length}${list.length !== devices.length ? ' / '+devices.length : ''})`;
+
+  const tbody = document.getElementById('devices-tbody');
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="icon">🔍</div>No devices match filter</div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map(d => {
+    const name      = escHtml(d.friendly_name || d.ieee_address || '?');
+    const model     = escHtml(d.definition && d.definition.model ? d.definition.model : '');
+    const type      = d.type || '?';
+    const lqi       = getLqi(d);
+    const lqiHtml   = lqiBar(lqi);
+    const ls        = formatLastSeen(getLastSeenMs(d));
+    const lsClass   = ls.stale ? 'stale' : ls.offline ? 'offline' : '';
+    const status    = deviceStatus(d);
+    const ieee      = d.ieee_address || '';
+
+    return `<tr>
+      <td>
+        <div class="device-name">${name}</div>
+        ${model ? `<div class="device-model">${model}</div>` : ''}
+      </td>
+      <td><span class="device-type">${escHtml(type)}</span></td>
+      <td>${lqiHtml}</td>
+      <td><span class="last-seen ${lsClass}" title="${new Date(getLastSeenMs(d)).toLocaleString()}">${ls.text}</span></td>
+      <td>${status}</td>
+      <td>
+        <div class="row-actions">
+          ${ieee ? `<button class="btn btn-ghost btn-sm" title="Re-interview device" onclick="interviewDevice('${escAttr(ieee)}','${escAttr(name)}')">Interview</button>` : ''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Device helpers
+   ═══════════════════════════════════════════════════════════ */
+function getLqi(d) {
+  if (d.link_quality !== undefined && d.link_quality !== null) return d.link_quality;
+  // some Z2M versions nest it
+  if (d.endpoints) {
+    for (const ep of Object.values(d.endpoints)) {
+      if (ep.lqi !== undefined) return ep.lqi;
+    }
+  }
+  return null;
+}
+
+function getLastSeenMs(d) {
+  if (!d.last_seen) return 0;
+  // Z2M returns ISO string or unix ms or unix seconds
+  const v = d.last_seen;
+  if (typeof v === 'string') return new Date(v).getTime();
+  if (typeof v === 'number') {
+    // heuristic: if > 1e12 it's ms, else seconds
+    return v > 1e12 ? v : v * 1000;
+  }
+  return 0;
+}
+
+function isOffline(d) {
+  const ms = getLastSeenMs(d);
+  if (!ms) return false;
+  return (Date.now() - ms) > 24 * 3600 * 1000;
+}
+
+function deviceStatus(d) {
+  if (!d.interview_completed) {
+    return `<span class="badge badge-red">Not interviewed</span>`;
+  }
+  const ms = getLastSeenMs(d);
+  if (!ms) return `<span class="badge badge-gray">Unknown</span>`;
+  const age = Date.now() - ms;
+  if (age > 24 * 3600 * 1000) return `<span class="badge badge-red">Offline</span>`;
+  if (age > 2  * 3600 * 1000) return `<span class="badge badge-yellow">Stale</span>`;
+  return `<span class="badge badge-green">Online</span>`;
+}
+
+/* ── lqiBar ────────────────────────────────────────────────── */
+function lqiBar(lqi) {
+  if (lqi === null || lqi === undefined) {
+    return `<div class="lqi-wrap"><span style="color:var(--gray);font-size:12px">—</span></div>`;
+  }
+  const pct   = Math.round((lqi / 255) * 100);
+  const color = lqi >= 100 ? 'var(--green)' :
+                lqi >=  50 ? 'var(--yellow)' :
+                             'var(--red)';
+  return `<div class="lqi-wrap">
+    <div class="lqi-bar-outer">
+      <div class="lqi-bar-inner" style="width:${pct}%;background:${color}"></div>
+    </div>
+    <span class="lqi-num" style="color:${color}">${lqi}</span>
+  </div>`;
+}
+
+/* ── formatLastSeen ─────────────────────────────────────────── */
+function formatLastSeen(ms) {
+  if (!ms) return { text: '—', stale: false, offline: false };
+  const diff = Date.now() - ms;
+  const s = Math.floor(diff / 1000);
+  if (s <   60) return { text: `${s}s ago`,          stale: false, offline: false };
+  if (s < 3600) return { text: `${Math.floor(s/60)}m ago`,  stale: false, offline: false };
+  const h = Math.floor(s / 3600);
+  if (h <  24)  return { text: `${h}h ago`,           stale: h > 2,  offline: false };
+  const d = Math.floor(h / 24);
+  return { text: `${d}d ago`, stale: false, offline: true };
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Interview per device
+   ═══════════════════════════════════════════════════════════ */
+function interviewDevice(ieee, name) {
+  sendMsg('zigbee2mqtt/bridge/request/device/interview', { id: ieee });
+  appendLog('info', `Interview requested for ${name} (${ieee})`);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Diagnostics
+   ═══════════════════════════════════════════════════════════ */
+function runDiagnostics(devs, info) {
+  const results = [];
+
+  // 1. Coordinator online
+  if (bridgeState === 'online') {
+    results.push({ level: 'ok', icon: '✓', text: 'Coordinator is online', hint: '' });
+  } else {
+    results.push({ level: 'error', icon: '✗', text: 'Coordinator offline or unreachable',
+      hint: 'Check that Zigbee2MQTT is running and the coordinator is connected.' });
+  }
+
+  // 2. Permit join warning
+  if (permitJoin) {
+    results.push({ level: 'warn', icon: '⚠', text: 'Permit join is currently enabled',
+      hint: 'New devices can join the network. Disable when pairing is complete.' });
+  }
+
+  // 3. Offline > 24h
+  const offline24 = devs.filter(d => isOffline(d) && d.type !== 'Coordinator');
+  if (offline24.length === 0) {
+    results.push({ level: 'ok', icon: '✓', text: 'No devices offline > 24h', hint: '' });
+  } else {
+    offline24.forEach(d => {
+      const name = d.friendly_name || d.ieee_address || '?';
+      results.push({ level: 'error', icon: '⚠', text: `Device "${name}" offline > 24h`,
+        hint: 'Try re-pairing or check battery.' });
+    });
+  }
+
+  // 4. Weak LQI < 30
+  const weakLqi = devs.filter(d => { const l = getLqi(d); return l !== null && l < 30; });
+  if (weakLqi.length === 0) {
+    results.push({ level: 'ok', icon: '✓', text: 'No devices with critically weak signal (LQI < 30)', hint: '' });
+  } else {
+    weakLqi.forEach(d => {
+      const name = d.friendly_name || d.ieee_address || '?';
+      results.push({ level: 'warn', icon: '⚠', text: `Weak signal on "${name}" (LQI ${getLqi(d)})`,
+        hint: 'Add a Zigbee router (mains-powered) device nearby to extend range.' });
+    });
+  }
+
+  // 5. Never interviewed
+  const uninterviewed = devs.filter(d => !d.interview_completed && d.type !== 'Coordinator');
+  if (uninterviewed.length === 0) {
+    results.push({ level: 'ok', icon: '✓', text: 'All devices fully interviewed', hint: '' });
+  } else {
+    uninterviewed.forEach(d => {
+      const name = d.friendly_name || d.ieee_address || '?';
+      results.push({ level: 'error', icon: '✗', text: `"${name}" not fully joined`,
+        hint: 'Remove and re-pair the device. Use the Interview button to retry.' });
+    });
+  }
+
+  // 6. End devices with LQI < 50 and no router in table (heuristic)
+  const routers    = devs.filter(d => d.type === 'Router');
+  const endDevices = devs.filter(d => d.type === 'EndDevice');
+  if (routers.length === 0 && endDevices.length > 0) {
+    results.push({ level: 'warn', icon: '⚠', text: `${endDevices.length} end device(s) with no router in the network`,
+      hint: 'End devices rely on routers for range. Add a mains-powered Zigbee router device.' });
+  }
+
+  renderDiagnostics(results);
+}
+
+function renderDiagnostics(results) {
+  const el = document.getElementById('diag-grid');
+  el.innerHTML = results.map(r => {
+    const cls = r.level === 'ok' ? 'diag-ok' : r.level === 'warn' ? 'diag-warn' : 'diag-error';
+    return `<div class="diag-item ${cls}">
+      <span class="diag-icon">${r.icon}</span>
+      <div>
+        <div class="diag-text">${escHtml(r.text)}</div>
+        ${r.hint ? `<div class="diag-hint">${escHtml(r.hint)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Logs
+   ═══════════════════════════════════════════════════════════ */
+function appendLog(level, message) {
+  const out  = document.getElementById('log-output');
+  const ts   = new Date().toLocaleTimeString();
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="log-ts">${ts}</span><span class="log-level-${level}">[${level.toUpperCase()}] ${escHtml(message)}</span>`;
+  out.appendChild(line);
+
+  // trim old lines
+  while (out.children.length > MAX_LOG_LINES) out.removeChild(out.firstChild);
+
+  const autoScroll = document.getElementById('log-autoscroll');
+  if (autoScroll && autoScroll.checked) out.scrollTop = out.scrollHeight;
+}
+
+function clearLogs() {
+  document.getElementById('log-output').innerHTML = '';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Export CSV
+   ═══════════════════════════════════════════════════════════ */
+function exportCSV() {
+  if (devices.length === 0) { appendLog('warning', 'No device data to export.'); return; }
+
+  const headers = ['Name','IEEE Address','Type','LQI','Last Seen','Interview Completed','Model','Vendor'];
+  const rows    = devices.map(d => [
+    d.friendly_name || '',
+    d.ieee_address  || '',
+    d.type          || '',
+    getLqi(d) ?? '',
+    d.last_seen ? new Date(getLastSeenMs(d)).toISOString() : '',
+    d.interview_completed ? 'yes' : 'no',
+    (d.definition && d.definition.model)  ? d.definition.model  : '',
+    (d.definition && d.definition.vendor) ? d.definition.vendor : '',
+  ]);
+
+  const csvContent = [headers, ...rows]
+    .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `zigbee-devices-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  appendLog('info', `Exported ${devices.length} devices to CSV.`);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   XSS helpers
+   ═══════════════════════════════════════════════════════════ */
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function escAttr(s) { return escHtml(s); }
+
+/* ═══════════════════════════════════════════════════════════
+   Init
+   ═══════════════════════════════════════════════════════════ */
+(function init() {
+  // Allow Enter key in host input
+  document.getElementById('inp-host').addEventListener('keydown', e => {
+    if (e.key === 'Enter') toggleConnect();
+  });
+
+  // Restore last host from localStorage
+  const saved = localStorage.getItem('z2m_host');
+  if (saved) document.getElementById('inp-host').value = saved;
+
+  document.getElementById('inp-host').addEventListener('change', e => {
+    localStorage.setItem('z2m_host', e.target.value.trim());
+  });
+
+  // Refresh relative timestamps every 30s
+  setInterval(() => {
+    if (devices.length) applyFilters();
+  }, 30000);
+
+  appendLog('info', 'Zigbee2MQTT Doctor ready. Enter host:port and click Connect.');
+})();
+</script>
+</body>
+</html>
