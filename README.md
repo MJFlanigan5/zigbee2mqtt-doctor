@@ -4,7 +4,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-7c3aed.svg)](LICENSE)
 
+## Demo
+
 ![Demo](demo.gif)
+
+> No hardware? Click **▶ Demo** on the [live page](https://MJFlanigan5.github.io/zigbee2mqtt-doctor/) to load 23 simulated devices and see all features in action.
 
 ---
 
