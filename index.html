@@ -102,6 +102,8 @@
     .btn-sm { padding: 3px 8px; font-size: 12px; }
     .btn-danger { background: var(--red); color: #fff; }
     .btn-danger:hover { background: #dc2626; }
+    .btn-demo { background: rgba(245,158,11,.18); color: var(--yellow); border: 1px solid rgba(245,158,11,.45); }
+    .btn-demo:hover { background: rgba(245,158,11,.32); }
     .btn:disabled { opacity: .4; cursor: not-allowed; }
 
     /* ── Layout ──────────────────────────────────── */
@@ -397,6 +399,11 @@
     <div class="conn-status" id="conn-dot"></div>
     <input id="inp-host" type="text" placeholder="host:port (e.g. 192.168.1.10:8080)" value="" />
     <button class="btn btn-primary" id="btn-connect" onclick="toggleConnect()">Connect</button>
+    <button class="btn btn-demo" id="btn-demo" onclick="enterDemoMode()">▶ Demo</button>
+  </div>
+  <div id="demo-badge" style="display:none;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;background:rgba(245,158,11,.25);border:1px solid rgba(245,158,11,.6);color:#f59e0b;font-size:12px;font-weight:700;letter-spacing:.04em;white-space:nowrap;">
+    DEMO MODE
+    <button onclick="exitDemoMode()" style="margin-left:4px;background:none;border:none;color:#f59e0b;cursor:pointer;font-size:13px;font-weight:700;line-height:1;padding:0 2px;" title="Exit demo mode">✕ Exit Demo</button>
   </div>
 </header>
 
@@ -1021,6 +1028,143 @@ function escHtml(s) {
     .replace(/"/g, '&quot;');
 }
 function escAttr(s) { return escHtml(s); }
+
+/* ═══════════════════════════════════════════════════════════
+   Demo Mode
+   ═══════════════════════════════════════════════════════════ */
+let demoMode     = false;
+let demoInterval = null;
+
+const DEMO_LOG_MESSAGES = [
+  { level: 'info',    message: 'MQTT publish: zigbee2mqtt/Hue Bulb Kitchen' },
+  { level: 'debug',   message: '0x00158d0001234567: Received message from device' },
+  { level: 'warning', message: '0x00158d0009876543: No heartbeat received for 25 minutes' },
+  { level: 'info',    message: 'Zigbee: received message from unknown device' },
+  { level: 'debug',   message: 'Configured reporting for 0x00158d0002345678' },
+];
+let _demoLogIdx = 0;
+
+function buildDemoDevices() {
+  const now = Date.now();
+  const minsAgo  = m  => now - m  * 60 * 1000;
+  const hoursAgo = h  => now - h  * 3600 * 1000;
+  const daysAgo  = d  => now - d  * 86400 * 1000;
+
+  return [
+    // 5 Philips Hue bulbs — router, LQI 180-240, online
+    { friendly_name: 'Hue Bulb Kitchen',   ieee_address: '0x0017880104e45522', type: 'Router',    link_quality: 240, last_seen: minsAgo(3),  interview_completed: true,  definition: { model: 'LCA001', vendor: 'Philips' } },
+    { friendly_name: 'Hue Bulb Living 1',  ieee_address: '0x0017880104e45523', type: 'Router',    link_quality: 218, last_seen: minsAgo(5),  interview_completed: true,  definition: { model: 'LCA001', vendor: 'Philips' } },
+    { friendly_name: 'Hue Bulb Living 2',  ieee_address: '0x0017880104e45524', type: 'Router',    link_quality: 195, last_seen: minsAgo(4),  interview_completed: true,  definition: { model: 'LCA002', vendor: 'Philips' } },
+    { friendly_name: 'Hue Bulb Bedroom',   ieee_address: '0x0017880104e45525', type: 'Router',    link_quality: 183, last_seen: minsAgo(6),  interview_completed: true,  definition: { model: 'LCA003', vendor: 'Philips' } },
+    { friendly_name: 'Hue Bulb Hallway',   ieee_address: '0x0017880104e45526', type: 'Router',    link_quality: 201, last_seen: minsAgo(2),  interview_completed: true,  definition: { model: 'LCT016', vendor: 'Philips' } },
+    // 4 IKEA TRADFRI bulbs — router, LQI 120-175, online
+    { friendly_name: 'TRADFRI Desk',       ieee_address: '0x000b57fffec82a00', type: 'Router',    link_quality: 175, last_seen: minsAgo(8),  interview_completed: true,  definition: { model: 'LED1623G12', vendor: 'IKEA' } },
+    { friendly_name: 'TRADFRI Shelf',      ieee_address: '0x000b57fffec82a01', type: 'Router',    link_quality: 155, last_seen: minsAgo(10), interview_completed: true,  definition: { model: 'LED1623G12', vendor: 'IKEA' } },
+    { friendly_name: 'TRADFRI Bathroom',   ieee_address: '0x000b57fffec82a02', type: 'Router',    link_quality: 138, last_seen: minsAgo(7),  interview_completed: true,  definition: { model: 'LED1836G9',  vendor: 'IKEA' } },
+    { friendly_name: 'TRADFRI Garage',     ieee_address: '0x000b57fffec82a03', type: 'Router',    link_quality: 122, last_seen: minsAgo(15), interview_completed: true,  definition: { model: 'LED1836G9',  vendor: 'IKEA' } },
+    // 2 Aqara motion sensors — end_device, LQI 88/95, online
+    { friendly_name: 'Aqara Motion Hall',  ieee_address: '0x00158d0001aabb01', type: 'EndDevice', link_quality: 95,  last_seen: minsAgo(12), interview_completed: true,  definition: { model: 'RTCGQ11LM', vendor: 'Aqara' } },
+    { friendly_name: 'Aqara Motion Porch', ieee_address: '0x00158d0001aabb02', type: 'EndDevice', link_quality: 88,  last_seen: minsAgo(20), interview_completed: true,  definition: { model: 'RTCGQ11LM', vendor: 'Aqara' } },
+    // 2 Aqara door sensors — end_device, LQI 22 (LOW!) and 58, online
+    { friendly_name: 'Aqara Door Front',   ieee_address: '0x00158d0001ccdd01', type: 'EndDevice', link_quality: 22,  last_seen: minsAgo(30), interview_completed: true,  definition: { model: 'MCCGQ11LM', vendor: 'Aqara' } },
+    { friendly_name: 'Aqara Door Garage',  ieee_address: '0x00158d0001ccdd02', type: 'EndDevice', link_quality: 58,  last_seen: minsAgo(18), interview_completed: true,  definition: { model: 'MCCGQ11LM', vendor: 'Aqara' } },
+    // 2 Sonoff ZBMINI — router, LQI 165/198
+    { friendly_name: 'Sonoff Switch Kitchen', ieee_address: '0xa4c138aabb0011', type: 'Router',    link_quality: 198, last_seen: minsAgo(5),  interview_completed: true,  definition: { model: 'ZBMINI',    vendor: 'Sonoff' } },
+    { friendly_name: 'Sonoff Switch Laundry', ieee_address: '0xa4c138aabb0012', type: 'Router',    link_quality: 165, last_seen: minsAgo(9),  interview_completed: true,  definition: { model: 'ZBMINI',    vendor: 'Sonoff' } },
+    // 1 IKEA remote — end_device, LQI 78
+    { friendly_name: 'TRADFRI Remote',     ieee_address: '0x000b57fffec88800', type: 'EndDevice', link_quality: 78,  last_seen: minsAgo(45), interview_completed: true,  definition: { model: 'E1524/E1810', vendor: 'IKEA' } },
+    // 1 Tuya temp sensor — end_device, LQI 11 (VERY LOW!)
+    { friendly_name: 'Tuya Temp Sensor',   ieee_address: '0x847127fffea1bc01', type: 'EndDevice', link_quality: 11,  last_seen: minsAgo(22), interview_completed: true,  definition: { model: 'TS0601',    vendor: 'Tuya' } },
+    // 1 Aqara vibration sensor — end_device, last_seen 3 days ago (OFFLINE)
+    { friendly_name: 'Aqara Vibration',    ieee_address: '0x00158d0002112233', type: 'EndDevice', link_quality: 72,  last_seen: daysAgo(3),  interview_completed: true,  definition: { model: 'DJT11LM',   vendor: 'Aqara' } },
+    // 1 Unknown device — interview_completed=false
+    { friendly_name: '0x00124b00aabbccdd', ieee_address: '0x00124b00aabbccdd', type: 'EndDevice', link_quality: 101, last_seen: minsAgo(60), interview_completed: false, definition: null },
+    // 4 generic devices
+    { friendly_name: 'Sonoff Button 1',    ieee_address: '0xa4c138bbcc0021',   type: 'EndDevice', link_quality: 134, last_seen: hoursAgo(2), interview_completed: true,  definition: { model: 'SNZB-01', vendor: 'Sonoff' } },
+    { friendly_name: 'Tuya Smart Plug',    ieee_address: '0x847127fffeb2cc02', type: 'Router',    link_quality: 188, last_seen: minsAgo(11), interview_completed: true,  definition: { model: 'TS011F', vendor: 'Tuya' } },
+    { friendly_name: 'Moes Dimmer',        ieee_address: '0x847127fffed3ee03', type: 'Router',    link_quality: 142, last_seen: minsAgo(33), interview_completed: true,  definition: { model: 'ZS-EUD', vendor: 'Moes' } },
+    { friendly_name: 'Moes Scene Switch',  ieee_address: '0x847127fffed3ee04', type: 'EndDevice', link_quality: 63,  last_seen: hoursAgo(1), interview_completed: true,  definition: { model: 'TS004F', vendor: 'Moes' } },
+  ];
+}
+
+function enterDemoMode() {
+  if (demoMode) return;
+  demoMode = true;
+
+  // Disconnect any real connection
+  disconnect();
+
+  // Show badge, hide demo button
+  document.getElementById('demo-badge').style.display = 'inline-flex';
+  document.getElementById('btn-demo').style.display   = 'none';
+  document.getElementById('inp-host').value           = 'demo.local:8080';
+  document.getElementById('inp-host').disabled        = true;
+  document.getElementById('btn-connect').disabled     = true;
+  document.getElementById('btn-permit').disabled      = true;
+
+  // Mark as connected
+  setConnStatus('online');
+  appendLog('info', 'Demo mode active — connected to demo.local:8080');
+
+  // Populate bridge info
+  bridgeState = 'online';
+  bridgeInfo  = {
+    version:     '1.36.1',
+    coordinator: { type: 'Texas Instruments CC2652P', meta: { revision: 20230507 } },
+    network:     { channel: 15, pan_id: 0x1a2b, extended_pan_id: '0xdddddddddddddddd' },
+    permit_join: false,
+  };
+  permitJoin = false;
+  renderBridge();
+  updatePermitBadge();
+
+  // Populate devices
+  devices = buildDemoDevices();
+  applyFilters();
+  runDiagnostics(devices, bridgeInfo);
+
+  // Stream log messages every 2.5s
+  demoInterval = setInterval(() => {
+    const entry = DEMO_LOG_MESSAGES[_demoLogIdx % DEMO_LOG_MESSAGES.length];
+    _demoLogIdx++;
+    appendLog(entry.level, entry.message);
+  }, 2500);
+}
+
+function exitDemoMode() {
+  if (!demoMode) return;
+  demoMode = false;
+
+  // Stop log streaming
+  if (demoInterval) { clearInterval(demoInterval); demoInterval = null; }
+  _demoLogIdx = 0;
+
+  // Restore UI controls
+  document.getElementById('demo-badge').style.display = 'none';
+  document.getElementById('btn-demo').style.display   = '';
+  document.getElementById('inp-host').disabled        = false;
+  document.getElementById('btn-connect').disabled     = false;
+  document.getElementById('inp-host').value           = localStorage.getItem('z2m_host') || '';
+
+  // Reset state
+  setConnStatus('offline');
+  bridgeState = 'offline';
+  bridgeInfo  = {};
+  permitJoin  = false;
+  devices     = [];
+
+  // Reset panels to disconnected state
+  document.getElementById('bridge-content').innerHTML =
+    '<div class="empty-state" style="padding:20px 0"><div style="color:var(--text-dim);font-size:13px">Not connected</div></div>';
+  document.getElementById('devices-tbody').innerHTML =
+    '<tr><td colspan="6"><div class="empty-state"><div class="icon">📡</div>Connect to see devices</div></td></tr>';
+  document.getElementById('device-count').textContent = '';
+  document.getElementById('diag-grid').innerHTML =
+    '<div class="diag-item"><span class="diag-icon">○</span><div><div class="diag-text" style="color:var(--text-dim)">Connect to run diagnostics</div></div></div>';
+  updatePermitBadge();
+
+  appendLog('info', 'Demo mode exited.');
+}
 
 /* ═══════════════════════════════════════════════════════════
    Init
